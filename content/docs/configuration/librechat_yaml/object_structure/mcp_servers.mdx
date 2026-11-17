@@ -180,6 +180,12 @@ mcpServers:
       'serverInstructions: true\n# or\nserverInstructions: "Custom instructions"',
     ],
     [
+      'attachmentUrls',
+      'Object',
+      "(Optional, `librechat.yaml` only) Lets this server's tools read the files users attach in the conversation. The model passes an `attachment://…` reference, which LibreChat swaps for a short-lived signed download URL in the outbound tool call.",
+      'attachmentUrls:\n  mimeTypes:\n    - application/pdf\n  expiry: 300',
+    ],
+    [
       'timeout',
       'Integer',
       '(Optional) Timeout in milliseconds for MCP server requests. Must be a non-negative integer. Defaults to 60000.',
@@ -491,6 +497,38 @@ For UI-created, shared servers using `apiKey.source: user`, saved keys are bound
 
   # Explicitly disable instructions
   serverInstructions: false
+  ```
+
+#### `attachmentUrls`
+
+- **Type:** Object (Optional)
+- **Description:** Lets this server's tools read the files users attach in the conversation. MCP servers cannot read files from LibreChat on their own, and the model never holds a URL a server could fetch. With `attachmentUrls`, LibreChat lists the conversation's files to the model as opaque `attachment://…` references. The model passes a reference in any tool argument that expects a URL, and LibreChat replaces it with a freshly signed, read-only download URL only in the outbound tool call. Servers without `attachmentUrls` are not offered any files and receive their arguments unchanged.
+- **Availability:** Only `librechat.yaml` can enable it. Servers created in the UI cannot, because a server that receives signed URLs can read users' files.
+- **Subkeys:**
+  - **`mimeTypes`** (Array of Strings): MIME types the server accepts, exact (`application/pdf`) or by type (`text/*`). Values are lowercase `type/subtype` or `type/*`. When omitted, every file that can be signed is offered.
+  - **`expiry`** (Integer, seconds): Lifetime of each URL, from `1` to `3600`. Defaults to [`fileConfig.downloadUrlExpiry`](/docs/configuration/librechat_yaml/object_structure/file_config#downloadurlexpiry), or `300` when that is not set.
+  - **`minTtl`** (Integer, seconds): Lifetime a URL must still have when it is handed to the server, from `0` to `3600`. The call fails instead of sending a URL that would expire sooner. Defaults to `60` and must not exceed `expiry`.
+  - **`conversationFiles`** (Integer): How many files from earlier messages of the conversation are also offered, most recent first, in addition to the latest message's attachments. This lets a tool be handed a file again when the server kept nothing between calls. `0` offers the latest message only. Defaults to `20`, up to `100`. Earlier files are offered only when `resendFiles` is on for the endpoint, which is the default.
+- **Notes:**
+  - Files are offered only if their storage can sign a download URL: local storage, S3, and CloudFront. Files in other storage (such as Azure Blob or Firebase), assistant files, and files uploaded as text are left out and nothing else about them changes.
+  - A file is offered only to the user who owns it, in their own tenant. The same file keeps the same reference in every turn.
+  - URLs never reach the model, stored messages, or traces. If a server echoes a URL back in a result or error, LibreChat replaces it with its reference first.
+  - For local storage, URLs point at `DOMAIN_SERVER` (`/api/files/signed/<id>`) and are signed with a key derived from `JWT_SECRET`, so the MCP server must be able to reach `DOMAIN_SERVER`, and rotating `JWT_SECRET` invalidates outstanding URLs. In Docker, `localhost` is usually not reachable from another container.
+  - A URL is a bearer credential until it expires. LibreChat redacts it from its own logs, but reverse proxies and CDNs usually record query strings. Strip them for `/api/files/signed/`.
+  - The file list is added to the agent's prompt only when the agent uses a server that accepts attachments, one line per offered file.
+- **Example:**
+  ```yaml
+  mcpServers:
+    documents:
+      type: streamable-http
+      url: https://documents-mcp.example.com/mcp
+      attachmentUrls:
+        mimeTypes:
+          - application/pdf
+          - text/*
+        expiry: 300
+        minTtl: 60
+        conversationFiles: 20
   ```
 
 #### `env`
@@ -820,7 +858,7 @@ Users whose role has the `CREATE` permission (see [`interface.mcpServers`](/docs
 - Choosing an API key that each user provides creates a `customUserVars` entry named `MCP_API_KEY_<hash>` and the matching header. Servers saved before this change may keep the legacy `MCP_API_KEY` name until their URL or authentication changes. See [`apiKey`](#apikey) for which edits make users enter their key again.
 - A server with an API key (shared or per user) is treated as API-key authenticated and skips OAuth auto-detection, unless it also has an OAuth configuration. If an API-key server saved by an older version stays on **Needs Auth**, edit and save it once to refresh its stored metadata.
 - Stored OAuth clients and tokens are bound to the server URL and the OAuth client and endpoint settings. Changing them makes users sign in again, and the editor has to re-enter a stored client secret when changing the URL, client ID, authorization URL, token URL, or token exchange method.
-- `oauthPrompt` and `oauthToolCatalog` are not available.
+- `oauthPrompt`, `oauthToolCatalog`, and `attachmentUrls` are not available.
 - [`mcpSettings`](/docs/configuration/librechat_yaml/object_structure/mcp_settings) domain and address restrictions apply.
 - New and edited servers take effect without a restart. An OAuth server is saved disconnected until a user signs in.
 
@@ -1016,6 +1054,23 @@ puppeteer:
     3. Wait for page elements to load before interacting with them
     4. Use specific CSS selectors for reliable element targeting
     5. Check console logs for JavaScript errors when troubleshooting
+```
+
+### MCP Server with Attachment URLs
+
+```yaml filename="librechat.yaml"
+mcpServers:
+  documents:
+    type: streamable-http
+    url: https://documents-mcp.example.com/mcp
+    # Tools can read the files users attach, as short-lived signed download URLs
+    attachmentUrls:
+      mimeTypes:
+        - application/pdf
+        - text/*
+      expiry: 300 # seconds, up to 3600
+      minTtl: 60 # a URL must have this long left when handed to the server
+      conversationFiles: 20 # earlier files also offered; 0 = latest message only
 ```
 
 ### OAuth-Enabled MCP Server (Legacy requiresOAuth)
