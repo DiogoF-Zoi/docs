@@ -18,6 +18,7 @@ The main fields under `fileConfig` covered here:
   - `fileTokenLimit`
   - `fileContextSizeLimit`
   - `fileContextCharLimit`
+  - `downloadUrlExpiry`
   - `defaultLLMDeliveryPath`
   - `legacyFileUploadUX`
   - `textFallbackWithoutTools`
@@ -79,6 +80,7 @@ fileConfig:
     fileSizeLimit: 50
   fileContextSizeLimit: 128
   fileContextCharLimit: 1000000
+  downloadUrlExpiry: 300
   legacyFileUploadUX: false
   imageGeneration:
     percentage: 100
@@ -253,6 +255,25 @@ fileConfig:
 ```yaml filename="fileConfig / fileContextCharLimit"
 fileConfig:
   fileContextCharLimit: 1000000
+```
+
+## downloadUrlExpiry
+
+<OptionTable
+  options={[
+    ['downloadUrlExpiry', 'Number', 'Lifetime in seconds of signed file download URLs (S3, CloudFront, and local storage). Whole seconds from 1 to 3600.', 'downloadUrlExpiry: 300'],
+  ]}
+/>
+
+**Description:** Sets how long a signed download URL stays valid. It applies to the [`attachmentUrls`](/docs/configuration/librechat_yaml/object_structure/mcp_servers#attachmenturls) option of MCP servers, where a server's own `expiry` takes precedence, and to the file download-URL API (`/api/files/download-url`).
+
+**Default:** Not set. MCP attachment URLs then last `300` seconds, and local storage URLs last `300` seconds. S3 URLs keep using `S3_URL_EXPIRY_SECONDS` and CloudFront URLs keep using [`cloudfront.urlExpiry`](/docs/configuration/librechat_yaml/object_structure/cloudfront) for the download-URL API. S3 URLs for images and avatars always use `S3_URL_EXPIRY_SECONDS`, and CloudFront asset URLs always use `cloudfront.urlExpiry`.
+
+A signed URL is a bearer credential until it expires, so the value is capped at one hour. For local storage, URLs point at `DOMAIN_SERVER/api/files/signed/<id>` and are signed with a key derived from `JWT_SECRET`, so rotating `JWT_SECRET` invalidates outstanding URLs.
+
+```yaml filename="fileConfig / downloadUrlExpiry"
+fileConfig:
+  downloadUrlExpiry: 300
 ```
 
 ## textFallbackWithoutTools
